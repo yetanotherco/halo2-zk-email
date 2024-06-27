@@ -20,6 +20,7 @@ use halo2_base::halo2_proofs::poly::kzg::strategy::AccumulatorStrategy;
 use halo2_base::halo2_proofs::poly::VerificationStrategy;
 use halo2_base::halo2_proofs::SerdeFormat;
 use halo2_rsa::{RSAPubE, RSAPublicKey, RSASignature};
+use halo2_aligned::plonk::write_params;
 use hex;
 use itertools::Itertools;
 use num_bigint::BigUint;
@@ -216,6 +217,63 @@ pub fn prove<C: CircuitExt<Fr>>(params_path: &str, circuit_config_path: &str, pk
         let mut writer = BufWriter::new(f);
         writer.write_all(&proof).unwrap();
         writer.flush().unwrap();
+    };
+    Ok(())
+}
+
+/// Generate a proof for the email verification circuit and formats it to be verified on aligned.
+///
+/// # Arguments
+/// * `params_path` - a file path of the SRS parameters.
+/// * `circuit_config_path` - a file path of the configuration of the email verification circuit.
+/// * `pk_path` - a file path of the proving key.
+/// * `proof_path` - a file path of the output proof.
+/// * `circuit` - an email verification circuit.
+pub fn aligned_prove<C: CircuitExt<Fr>>(params_path: &str, setup_params_path: &str, circuit_config_path: &str, pk_path: &str, proof_path: &str, circuit: C) -> Result<(), Error> 
+{
+    set_var(EMAIL_VERIFY_CONFIG_ENV, circuit_config_path);
+    let mut params = {
+        let f = File::open(Path::new(setup_params_path)).unwrap();
+        let mut reader = BufReader::new(f);
+        ParamsKZG::<Bn256>::read(&mut reader).unwrap()
+    };
+    let app_config = default_config_params();
+    if params.k() > app_config.degree {
+        params.downsize(app_config.degree);
+    }
+    let pk = {
+        let f = File::open(Path::new(pk_path)).unwrap();
+        let mut reader = BufReader::new(f);
+        ProvingKey::<G1Affine>::read::<_, C>(&mut reader, SerdeFormat::RawBytesUnchecked).unwrap()
+    };
+    // let (circuit, headerhash, public_key_n, header_substrs, body_substrs) = gen_circuit_from_email_path(email_path).await;
+    let instances = circuit.instances();
+    let proof = gen_proof_shplonk(&params, &pk, circuit, instances, &mut OsRng, None);
+    {
+        let f = File::create(proof_path).unwrap();
+        let mut writer = BufWriter::new(f);
+        writer.write_all(&proof).unwrap();
+        writer.flush().unwrap();
+
+        let pk = {
+            let f = File::open(Path::new(pk_path)).unwrap();
+            let mut reader = BufReader::new(f);
+            halo2_aligned::plonk::ProvingKey::<halo2curves_aligned::bn256::G1Affine>::read::<_, C>(&mut reader, halo2_aligned::SerdeFormat::RawBytesUnchecked).unwrap()
+        };
+
+        let vk = pk.get_vk();
+        let mut vk_buf = Vec::new();
+        vk.write(&mut vk_buf, halo2_aligned::SerdeFormat::RawBytes).unwrap();
+        let cs = vk.cs();
+        let mut vk_buf = Vec::new();
+        vk.write(&mut vk_buf, halo2_aligned::SerdeFormat::RawBytes).unwrap();
+    
+        let mut params_buf = Vec::new();
+        params.write(&mut params_buf).unwrap();
+
+        let cs_buf = bincode::serialize(cs).unwrap();
+
+        write_params::<halo2curves_aligned::bn256::G1Affine>(&params_buf, &cs_buf, &vk_buf, params_path).unwrap();
     };
     Ok(())
 }

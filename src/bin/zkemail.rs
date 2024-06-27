@@ -84,6 +84,29 @@ enum Commands {
         #[arg(long, default_value = "./build/public_input.json")]
         public_input_path: String,
     },
+    AlignedProve {
+        // aligned parameters path
+        #[arg(short, long, default_value = "./build/params.bin")]
+        params_path: String,
+        /// setup parameters path
+        #[arg(short, long, default_value = "./build/setup.bin")]
+        setup_params_path: String,
+        /// email verification circuit configure file
+        #[arg(short, long, default_value = "./configs/default_app.config")]
+        circuit_config_path: String,
+        /// proving key path
+        #[arg(long, default_value = "./build/app.pk")]
+        pk_path: String,
+        /// emails path
+        #[arg(short, long, default_value = "./examples/demo.eml")]
+        email_path: String,
+        /// output proof file
+        #[arg(long, default_value = "./build/app.proof")]
+        proof_path: String,
+        /// public input file
+        #[arg(long, default_value = "./build/public_input.bin")]
+        public_input_path: String,
+    },
     Verify {
         /// setup parameters path
         #[arg(short, long, default_value = "./build/params.bin")]
@@ -191,6 +214,21 @@ async fn main() {
             let circuit = DefaultEmailVerifyCircuit::<Fr>::gen_circuit_from_email_path(&email_path).await;
             let public_input = circuit.gen_default_public_input();
             prove(&params_path, &circuit_config_path, &pk_path, &proof_path, circuit).unwrap();
+            serde_json::to_writer_pretty(File::create(&public_input_path).unwrap(), &public_input).unwrap();
+        }
+        Commands::AlignedProve {
+            params_path,
+            setup_params_path,
+            circuit_config_path,
+            pk_path,
+            email_path,
+            proof_path,
+            public_input_path,
+        } => {
+            set_var(EMAIL_VERIFY_CONFIG_ENV, &circuit_config_path);
+            let circuit = DefaultEmailVerifyCircuit::<Fr>::gen_circuit_from_email_path(&email_path).await;
+            let public_input = circuit.gen_default_public_input();
+            aligned_prove(&params_path, &setup_params_path, &circuit_config_path, &pk_path, &proof_path, circuit).unwrap();
             serde_json::to_writer_pretty(File::create(&public_input_path).unwrap(), &public_input).unwrap();
         }
         Commands::EVMProve {
